@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
+import { hash } from 'bcrypt'
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 
@@ -23,13 +24,55 @@ export async function usersRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'E-mail already exists' })
     }
 
-    const hashedPassword = await await knex('users').insert({
+    const hashedPassword = await hash(password, 8)
+
+    await knex('users').insert({
       id: randomUUID(),
       name,
       email,
-      password,
+      password: hashedPassword,
     })
 
     return reply.status(201).send()
+  })
+
+  app.get('/metrics', async (request) => {
+    const userId = request.cookies.userId
+
+    const mealsList = await knex('meals')
+      .where({ user_id: userId })
+      .select()
+      .orderBy('datetime', 'desc')
+
+    console.log(mealsList)
+
+    const mealsQuantity = mealsList.length
+    const mealsOnDiet = mealsList.filter((meal) => meal.is_on_diet)
+
+    const mealsOffDiet = mealsList.filter((meal) => !meal.is_on_diet)
+
+    const { bestOnDietSequence } = mealsList.reduce(
+      (acc, meal) => {
+        if (meal.is_on_diet) {
+          acc.currentSequence += 1
+        } else {
+          acc.currentSequence = 0
+        }
+
+        if (acc.currentSequence > acc.bestOnDietSequence) {
+          acc.bestOnDietSequence = acc.currentSequence
+        }
+
+        return acc
+      },
+      { bestOnDietSequence: 0, currentSequence: 0 },
+    )
+
+    return {
+      mealsQuantity,
+      mealsOnDietQuantity: mealsOnDiet.length,
+      mealsOffDietQuantity: mealsOffDiet.length,
+      bestOnDietSequence,
+    }
   })
 }
